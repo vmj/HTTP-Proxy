@@ -3,6 +3,7 @@ package HTTP::Proxy::BodyFilter::save;
 use strict;
 use HTTP::Proxy;
 use HTTP::Proxy::BodyFilter;
+use HTTP::Proxy::Util;
 use vars qw( @ISA );
 @ISA = qw( HTTP::Proxy::BodyFilter );
 use Fcntl;
@@ -15,11 +16,7 @@ sub init {
 
     # options 
     my %args = (
-         template   => File::Spec->catfile( '%h', '%P' ),
-         no_host    => 0,
-         no_dirs    => 0,
-         cut_dirs   => 0,
-         prefix     => '',
+         %HTTP::Proxy::Util::FILENAME_TEMPLATE_ARGS,
          filename   => undef,
          multiple   => 1,
          keep_old   => 0, # no_clobber in wget parlance
@@ -38,9 +35,10 @@ sub init {
       if defined $args{filename} && !UNIVERSAL::isa( $args{filename}, 'CODE' );
 
     $self->{"_hpbf_save_filename_code"} = $args{filename};
+    $self->{"_hpbf_save_template_args"}{$_} = $args{$_}
+      for keys %HTTP::Proxy::Util::FILENAME_TEMPLATE_ARGS;
     $self->{"_hpbf_save_$_"} = $args{$_}
-      for qw( template no_host no_dirs cut_dirs prefix
-              multiple keep_old timestamp status );
+      for qw( multiple keep_old timestamp status );
 }
 
 sub begin {
@@ -70,29 +68,7 @@ sub begin {
     }
     else {
         # set the template variables from the URI
-        my @segs = $uri->path_segments; # starts with an empty string
-        shift @segs;
-        splice(@segs, 0, $self->{_hpbf_save_cut_dirs} >= @segs
-                         ? @segs - 1 : $self->{_hpbf_save_cut_dirs} );
-        my %vars = (
-             '%' => '%',
-             h   => $self->{_hpbf_save_no_host} ? '' : $uri->host,
-             f   => $segs[-1] || 'index.html', # same default as wget
-             p   => $self->{_hpbf_save_no_dirs} ? $segs[-1] || 'index.html'
-                                                : File::Spec->catfile(@segs),
-             q   => $uri->query,
-        );
-        pop @segs;
-        $vars{d}
-            = $self->{_hpbf_save_no_dirs} ? ''
-            : @segs                       ? File::Spec->catfile(@segs)
-            :                               '';
-        $vars{P} = $vars{p} . ( $vars{q} ? "?$vars{q}" : '' );
-    
-        # create the filename
-        $file = File::Spec->catfile( $self->{_hpbf_save_prefix} || (),
-                                     $self->{_hpbf_save_template} );
-        $file =~ s/%(.)/$vars{$1}/g;
+        $file = HTTP::Proxy::Util::filename_from_uri($uri, %{ $self->{_hpbf_save_template_args} });
     }
     $file = File::Spec->rel2abs( $file );
 
